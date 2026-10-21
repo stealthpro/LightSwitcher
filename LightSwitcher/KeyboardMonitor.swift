@@ -48,8 +48,12 @@ final class KeyboardMonitor {
 
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
-        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        case .tapDisabledByTimeout:
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+
+        case .tapDisabledByUserInput:
+            // Taps are disabled this way when permission is revoked. Re-enabling a revoked tap repeats the cycle and stalls input.
+            if AXIsProcessTrusted(), let tap { CGEvent.tapEnable(tap: tap, enable: true) }
 
         case .keyDown where event.getIntegerValueField(.eventSourceUserData) != KeyInjector.marker:
             if modifierComboHeld { modifierComboUsedByKey = true }
