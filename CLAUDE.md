@@ -20,7 +20,7 @@ Running from Xcode (Cmd+R) also works. The app is a menu bar app with `LSUIEleme
 ## Things that are easy to get wrong
 
 - **The app must stay unsandboxed** (`ENABLE_APP_SANDBOX = NO`). The global event tap and posted key events are blocked otherwise.
-- **Permissions are per build.** Accessibility and Input Monitoring are checked at launch (`AppDelegate.startMonitoring`). Rebuilds with changing signatures can reset them, and the app must be relaunched after granting them.
+- **Permissions are per build.** Only Accessibility is needed; the active event tap works with it alone, so the app does not request Input Monitoring. It is checked at launch (`AppDelegate.startMonitoring`). Rebuilds with changing signatures can reset it, and the app must be relaunched after granting it.
 - **Default actor isolation is `MainActor`** (`SWIFT_DEFAULT_ACTOR_ISOLATION`), and the Swift language version is 5.0. The event-tap callback runs on the main run loop and enters the main actor with `MainActor.assumeIsolated`. Keep new code that touches the tap or TIS on the main thread.
 - **Deployment target is macOS 14.0**, which is required for the two-parameter `onChange` in `SettingsView` and for `SMAppService` in `AppSettings.swift`.
 

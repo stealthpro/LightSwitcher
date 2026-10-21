@@ -49,11 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startMonitoring() {
-        // Accessibility lets us read selections and type text; Input Monitoring lets us see key presses.
+        // Accessibility lets us watch key presses through the event tap, read selections, and type text.
         let trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-        if !CGPreflightListenEventAccess() {
-            CGRequestListenEventAccess()
-        }
         if !monitor.start() || !trusted {
             showPermissionAlert()
         }
@@ -62,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPermissionAlert() {
         let alert = NSAlert()
         alert.messageText = "LightSwitcher needs permissions"
-        alert.informativeText = "Allow LightSwitcher under Accessibility and Input Monitoring in System Settings → Privacy & Security, then relaunch the app."
+        alert.informativeText = "Allow LightSwitcher under Accessibility in System Settings → Privacy & Security, then relaunch the app."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")
         if alert.runModal() == .alertFirstButtonReturn,
