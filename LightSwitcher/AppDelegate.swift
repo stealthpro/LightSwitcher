@@ -32,20 +32,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let converter = LayoutConverter(from: source, to: target)
 
         if let selection = SelectionReader.selectedText(), !selection.isEmpty {
-            KeyInjector.type(converter.convert(selection))
             monitor.typedWord = ""
+            KeyInjector.replace(deleting: 0, with: converter.convert(selection)) { target.select() }
         } else if !monitor.typedWord.isEmpty {
             let word = monitor.typedWord
             let converted = converter.convert(word)
-            KeyInjector.deleteBackward(word.count)
-            KeyInjector.type(converted)
             // Keep the converted word, so pressing the shortcut again converts it back.
             monitor.rememberConversion(converted)
+            KeyInjector.replace(deleting: word.count, with: converted) { target.select() }
         } else {
             NSSound.beep()
-            return
         }
-        target.select()
     }
 
     private func startMonitoring() {
