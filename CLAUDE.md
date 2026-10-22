@@ -21,7 +21,7 @@ The app is a menu bar app (`LSUIElement`): no Dock icon and no window. Quit it f
 ## Constraints
 
 - **Unsandboxed** (`ENABLE_APP_SANDBOX = NO`). The sandbox blocks the global event tap and posted key events.
-- **Accessibility only.** The permission is checked at launch (`AppDelegate.startMonitoring`). The event tap does not need Input Monitoring. Permission is tied to the build's signature, so a rebuild can reset it; relaunch after granting.
+- **Accessibility only.** The permission is checked at launch (`AppDelegate.startMonitoring`). The event tap does not need Input Monitoring. Permission is tied to the build's signature, so a rebuild can reset it. When the permission is missing at launch, the app waits for it and restarts itself once it is granted (`AppDelegate.relaunchWhenTrusted`).
 - **Threading.** Default actor isolation is `MainActor` (Swift 5.0). The event tap callback runs on the main run loop. `KeyInjector` posts events on its own queue, because `CGEvent.post` blocks until the window server accepts the event, and the window server waits on the main-thread tap. Posting from main can freeze all input. Keep any other code that touches the tap or TIS on the main thread.
 - **Deployment target macOS 14.0**, required by the two-parameter `onChange` in `SettingsView`.
 

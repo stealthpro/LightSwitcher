@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private var subscriptions = Set<AnyCancellable>()
+    private var permissionTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         settings.$hotkey
@@ -49,15 +50,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startMonitoring() {
         // Accessibility lets us watch key presses through the event tap, read selections, and type text.
         // No system prompt here: showPermissionAlert explains the step and opens the same settings pane.
-        if !monitor.start() || !AXIsProcessTrusted() {
+        let trusted = AXIsProcessTrusted()
+        if !monitor.start() || !trusted {
+            if !trusted { relaunchWhenTrusted() }
             showPermissionAlert()
         }
+    }
+
+    /// macOS applies an Accessibility grant only to processes started after it, so this one can't use the event tap.
+    /// Watch for the grant, then restart the app.
+    private func relaunchWhenTrusted() {
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard AXIsProcessTrusted() else { return }
+                timer.invalidate()
+                self?.relaunch()
+            }
+        }
+        // Common modes, so the watch keeps running while the permission alert is open.
+        RunLoop.main.add(timer, forMode: .common)
+        permissionTimer = timer
+    }
+
+    /// Starts a helper that waits for this process to exit, then opens the app again.
+    private func relaunch() {
+        let script = "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; open \"$2\""
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c", script, "sh", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundlePath]
+        try? helper.run()
+        NSApp.abortModal() // ends the permission alert if it is still open
+        NSApp.terminate(nil)
     }
 
     private func showPermissionAlert() {
         let alert = NSAlert()
         alert.messageText = "LightSwitcher needs permissions"
-        alert.informativeText = "Allow LightSwitcher under Accessibility in System Settings → Privacy & Security, then relaunch the app."
+        alert.informativeText = "Allow LightSwitcher under Accessibility in System Settings → Privacy & Security. The app restarts by itself once it is allowed."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")
         if alert.runModal() == .alertFirstButtonReturn,
