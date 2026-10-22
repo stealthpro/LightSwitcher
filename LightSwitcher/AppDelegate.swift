@@ -33,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let selection = SelectionReader.selectedText(), !selection.isEmpty {
             monitor.typedWord = ""
-            KeyInjector.replace(deleting: 0, with: converter.convert(selection)) { target.select() }
+            // Stays selected, so pressing the shortcut again converts it back.
+            KeyInjector.replace(deleting: 0, with: converter.convert(selection), keepSelected: true) { target.select() }
         } else if !monitor.typedWord.isEmpty {
             let word = monitor.typedWord
             let converted = converter.convert(word)

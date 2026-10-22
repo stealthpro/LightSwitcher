@@ -1,49 +1,48 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Commands
 
-The Xcode project is `LightSwitcher.xcodeproj` (one target, one scheme: `LightSwitcher`). There is no test target, linter, or package manager configuration.
+The Xcode project is `LightSwitcher.xcodeproj` (one target, one scheme: `LightSwitcher`). There are no tests or linter.
 
 ```sh
-# Debug build for Apple Silicon (matches the verified build)
+# Debug build (Apple Silicon)
 xcodebuild -project LightSwitcher.xcodeproj -scheme LightSwitcher -configuration Debug \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath /tmp/ls-build build
-
-# Run the built app
 open /tmp/ls-build/Build/Products/Debug/LightSwitcher.app
 
-# Release build packaged as dist/LightSwitcher.dmg (not notarized)
+# Release DMG at dist/LightSwitcher.dmg (not notarized)
 ./make-dmg.sh
 ```
 
-Running from Xcode (Cmd+R) also works. The app is a menu bar app with `LSUIElement`, so it has no Dock icon or main window. Quit it from its menu bar item.
+The app is a menu bar app (`LSUIElement`): no Dock icon and no window. Quit it from its menu bar item.
 
-## Things that are easy to get wrong
+## Constraints
 
-- **The app must stay unsandboxed** (`ENABLE_APP_SANDBOX = NO`). The global event tap and posted key events are blocked otherwise.
-- **Permissions are per build.** Only Accessibility is needed; the active event tap works with it alone, so the app does not request Input Monitoring. It is checked at launch (`AppDelegate.startMonitoring`). Rebuilds with changing signatures can reset it, and the app must be relaunched after granting it.
-- **Default actor isolation is `MainActor`** (`SWIFT_DEFAULT_ACTOR_ISOLATION`), and the Swift language version is 5.0. The event-tap callback runs on the main run loop and enters the main actor with `MainActor.assumeIsolated`. Event posting (`KeyInjector`) runs on its own queue, not the main thread: `CGEvent.post` blocks until the window server accepts the event, and the window server waits on the main-thread event tap, so posting from main can deadlock and freeze all input. Completion returns to main via `DispatchQueue.main.async`. Keep other new code that touches the tap or TIS on the main thread.
-- **Deployment target is macOS 14.0**, which is required for the two-parameter `onChange` in `SettingsView` and for `SMAppService` in `AppSettings.swift`.
+- **Unsandboxed** (`ENABLE_APP_SANDBOX = NO`). The sandbox blocks the global event tap and posted key events.
+- **Accessibility only.** The permission is checked at launch (`AppDelegate.startMonitoring`). The event tap does not need Input Monitoring. Permission is tied to the build's signature, so a rebuild can reset it; relaunch after granting.
+- **Threading.** Default actor isolation is `MainActor` (Swift 5.0). The event tap callback runs on the main run loop. `KeyInjector` posts events on its own queue, because `CGEvent.post` blocks until the window server accepts the event, and the window server waits on the main-thread tap. Posting from main can freeze all input. Keep any other code that touches the tap or TIS on the main thread.
+- **Deployment target macOS 14.0**, required by the two-parameter `onChange` in `SettingsView`.
+
+## Behavior
+
+The app converts text typed on one keyboard layout into what the same physical keys produce on the other (`ghbdtn` → `привет`). It never switches automatically. The user presses the hotkey, which defaults to ⌃⌘. A modifier-only shortcut fires when its first key is released, unless another key or modifier was used while holding it.
+
+A press acts on the selection if there is one, otherwise on typed text:
+
+- **Selected text** is converted and stays selected, so the next press converts it back.
+- **Typed text** is the text typed since the last click, Enter, Tab, Escape, navigation key, shortcut, or secure input. It is converted and replaced, and the result is remembered so the next press converts it back. Typing after a conversion starts a new phrase, which leaves the converted text unconverted.
+- Otherwise the app beeps.
 
 ## Architecture
 
-The app converts text typed on one keyboard layout into what the same physical keys produce on another (for example `ghbdtn` → `привет`). There is no automatic switching; the user presses the hotkey.
+A press flows through `KeyboardMonitor` (event tap, hotkey match, typing buffer) to `AppDelegate.switchLayout()` (chooses selection or typed text), then through `LayoutConverter` (`KeyboardLayout.swift`), then through `KeyInjector` (`TextInput.swift`), which deletes and retypes the text and then selects the target layout.
 
-**Flow of a hotkey press:**
+- `KeyboardMonitor.swift`: owns the tap. Clears the typing buffer on shortcuts, navigation keys, Enter/Tab/Escape, mouse clicks, and secure input. Ignores its own injected events.
+- `KeyboardLayout.swift`: reads layouts through TIS and `UCKeyTranslate`, and builds `LayoutConverter`. The converter maps only unmodified and Shift strokes. Option layers are left out because on Cyrillic layouts they hold Latin letters (Option+ф is `d`), which would convert text in both directions. Characters outside both layouts (digits, emoji, Option symbols) pass through unchanged.
+- `TextInput.swift`: `KeyInjector` types text and keeps a selection (Shift+Left) when asked. `SelectionReader` reads the selected text through Accessibility.
+- `AppDelegate.swift`: menu bar item, permission alert, and conversion orchestration. `main.swift` creates the delegate and runs the application.
+- `Hotkey.swift`: the shortcut model. `AppSettings.swift`: preferences stored as JSON in `UserDefaults` under `switchHotkey`, shortcut recording, and `LaunchAtLogin` (`SMAppService`). `SettingsView.swift`: the Settings window.
 
-1. `KeyboardMonitor` owns a `CGEvent` tap (`.cgSessionEventTap`, `.defaultTap`) that sees every key press and mouse click. It keeps `typedWord`, the recent characters before the cursor, and clears it on shortcuts, navigation keys, Enter/Tab/Escape, mouse clicks, and secure input.
-2. When the configured `Hotkey` is matched, the tap swallows the event and `fireHotkey` calls `onHotkey` on the next main-queue turn. A modifier-only hotkey (the default ⌃⌘) fires when its last modifier is released, unless a key or extra modifier was used while holding it.
-3. `AppDelegate.switchLayout()` reads the current layout and the next enabled layout (`KeyboardLayout`), builds a `LayoutConverter` for them, and converts either the selected text (`SelectionReader`, via Accessibility) or the remembered word.
-4. Output goes through `KeyInjector`: it deletes the typed word with backspaces and retypes the converted text with `keyboardSetUnicodeString`. It then calls `target.select()` to switch the input source.
-
-**Loop prevention:** `KeyInjector` tags every posted event with `eventSourceUserData = 0x4C53`. `KeyboardMonitor` skips tagged keys when matching the hotkey or tracking typing, so injected text is never treated as user input.
-
-**Layout conversion** (`KeyboardLayout.swift`): `LayoutConverter` builds a map from characters in the source layout to characters in the target layout by matching "strokes" (key code plus modifier state, none or Shift only). Option layers are deliberately excluded: on Cyrillic layouts they hold Latin letters (Option+ф is `d`), which made conversions cross-map and turn `фывфыв` into `asåaså` and then `фыdфыd`. The layouts are read through `UCKeyTranslate` on `kTISPropertyUnicodeKeyLayoutData`. Input methods without layout data are skipped. Characters that aren't in the map (digits, emoji, Option-only symbols such as `å`) are left as they are.
-
-**Repeated switches:** after a word is converted, `AppDelegate` calls `KeyboardMonitor.rememberConversion`, so pressing the shortcut again converts it back. Typing after a conversion starts a new phrase, so the converted text is not converted again along with the new text.
-
-**Settings:** `AppSettings` (an `ObservableObject`) stores the `Hotkey` as JSON in `UserDefaults` under `switchHotkey`. It also records a new shortcut through a local `NSEvent` monitor, and `AppDelegate` subscribes to its publishers to keep `KeyboardMonitor` in sync. While a shortcut is being recorded, `isSuspended` stops the monitor from firing it. `SettingsView` is a SwiftUI form hosted in an `NSWindow` created by `AppDelegate`. `LaunchAtLogin` wraps `SMAppService.mainApp`.
-
-**Files:** `main.swift` (entry point; creates `AppDelegate` and runs `NSApplication`, since `@main` on the delegate did not install it), `AppDelegate.swift` (menu bar item, permissions, orchestration), `KeyboardMonitor.swift` (event tap and typing buffer), `KeyboardLayout.swift` (TIS and `UCKeyTranslate` layout access and converter), `TextInput.swift` (`KeyInjector` and `SelectionReader`), `Hotkey.swift` (hotkey model and `NSEvent.ModifierFlags` helpers), `AppSettings.swift`, `SettingsView.swift`.
+**Loop prevention:** `KeyInjector` tags each posted event with `KeyInjector.marker` in `eventSourceUserData`. `KeyboardMonitor` ignores tagged events, so injected text is never treated as typing.

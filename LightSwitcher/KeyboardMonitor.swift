@@ -80,7 +80,7 @@ final class KeyboardMonitor {
         return Unmanaged.passUnretained(event)
     }
 
-    /// Modifier-only shortcuts fire when the last of their keys is released, as long as no other key was pressed
+    /// Modifier-only shortcuts fire when the first of their keys is released, as long as no other key was pressed
     /// or extra modifier added while holding them. Returns true when the shortcut has just completed.
     private func updateModifierCombo(_ held: NSEvent.ModifierFlags) -> Bool {
         let target = hotkey.flags

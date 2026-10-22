@@ -1,0 +1,7 @@
+# Release DMG output from make-dmg.sh
+dist/
+
+# Per-user Xcode state
+xcuserdata/
+
+.DS_Store
