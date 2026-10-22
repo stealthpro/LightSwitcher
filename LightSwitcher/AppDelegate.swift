@@ -48,8 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startMonitoring() {
         // Accessibility lets us watch key presses through the event tap, read selections, and type text.
-        let trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-        if !monitor.start() || !trusted {
+        // No system prompt here: showPermissionAlert explains the step and opens the same settings pane.
+        if !monitor.start() || !AXIsProcessTrusted() {
             showPermissionAlert()
         }
     }
