@@ -13,6 +13,9 @@ xcodebuild -project LightSwitcher.xcodeproj -scheme LightSwitcher -configuration
 
 # Run the built app
 open /tmp/ls-build/Build/Products/Debug/LightSwitcher.app
+
+# Release build packaged as dist/LightSwitcher.dmg (not notarized)
+./make-dmg.sh
 ```
 
 Running from Xcode (Cmd+R) also works. The app is a menu bar app with `LSUIElement`, so it has no Dock icon or main window. Quit it from its menu bar item.
@@ -21,7 +24,7 @@ Running from Xcode (Cmd+R) also works. The app is a menu bar app with `LSUIEleme
 
 - **The app must stay unsandboxed** (`ENABLE_APP_SANDBOX = NO`). The global event tap and posted key events are blocked otherwise.
 - **Permissions are per build.** Only Accessibility is needed; the active event tap works with it alone, so the app does not request Input Monitoring. It is checked at launch (`AppDelegate.startMonitoring`). Rebuilds with changing signatures can reset it, and the app must be relaunched after granting it.
-- **Default actor isolation is `MainActor`** (`SWIFT_DEFAULT_ACTOR_ISOLATION`), and the Swift language version is 5.0. The event-tap callback runs on the main run loop and enters the main actor with `MainActor.assumeIsolated`. Keep new code that touches the tap or TIS on the main thread.
+- **Default actor isolation is `MainActor`** (`SWIFT_DEFAULT_ACTOR_ISOLATION`), and the Swift language version is 5.0. The event-tap callback runs on the main run loop and enters the main actor with `MainActor.assumeIsolated`. Event posting (`KeyInjector`) runs on its own queue, not the main thread: `CGEvent.post` blocks until the window server accepts the event, and the window server waits on the main-thread event tap, so posting from main can deadlock and freeze all input. Completion returns to main via `DispatchQueue.main.async`. Keep other new code that touches the tap or TIS on the main thread.
 - **Deployment target is macOS 14.0**, which is required for the two-parameter `onChange` in `SettingsView` and for `SMAppService` in `AppSettings.swift`.
 
 ## Architecture
